@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>EEC Lead-Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232a78d6'/%3E%3Cpath d='M4 11V7M8 11V4M12 11V8' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{color-scheme:light;--page:#f6f6f4;--surface:#fff;--ink:#141413;--ink-2:#52514e;--ink-3:#6f6d68;--line:#e6e5df;--line-2:#d5d4cc;
+  --accent:#2a78d6;--bad:#b42f2f;--font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){color-scheme:dark;--page:#0f0f0e;--surface:#1a1a19;--ink:#f0efec;
+  --ink-2:#c3c2b7;--ink-3:#9a988f;--line:#2c2c2a;--line-2:#3a3a37;--accent:#3987e5;--bad:#f08a8a}}
+:root[data-theme="dark"]{color-scheme:dark;--page:#0f0f0e;--surface:#1a1a19;--ink:#f0efec;--ink-2:#c3c2b7;--ink-3:#9a988f;--line:#2c2c2a;
+  --line-2:#3a3a37;--accent:#3987e5;--bad:#f08a8a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:var(--page);color:var(--ink);font:14px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+.card{width:min(380px,100%);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:28px 24px 20px}
+.logo{width:40px;height:40px;border-radius:10px;background:var(--accent);display:grid;place-items:center;margin-bottom:16px}
+h1{font-size:19px;line-height:1.3;margin:0;letter-spacing:-.01em}
+.sub{color:var(--ink-2);margin:4px 0 20px}
+label.f{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+input[type=password]{width:100%;height:40px;border:1px solid var(--line-2);border-radius:8px;padding:0 12px;font:inherit;background:var(--surface);color:var(--ink)}
+input[type=password]:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.row{display:flex;align-items:center;gap:8px;margin:12px 0 18px;font-size:13px;color:var(--ink-2);cursor:pointer}
+.row input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+button{width:100%;height:40px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.65;cursor:wait}
+.err{color:var(--bad);font-size:13px;min-height:20px;margin-top:10px}
+.foot{font-size:12px;color:var(--ink-3);margin-top:12px;border-top:1px solid var(--line);padding-top:14px}
+[hidden]{display:none!important}
+</style>
+<script>try{const t=localStorage.getItem("eec-theme");if(t)document.documentElement.dataset.theme=t}catch{}</script>
+</head>
+<body>
+<main class="card">
+  <div class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 16 16"><path d="M4 11V7M8 11V4M12 11V8" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+  <h1>EEC Lead-Dashboard</h1>
+  <p class="sub" id="sub">Geschützter Bereich. Bitte Passwort eingeben.</p>
+  <form id="form">
+    <input type="text" name="username" autocomplete="username" value="eec-dashboard" hidden>
+    <label class="f" for="pw">Passwort</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+    <label class="row"><input type="checkbox" id="remember"> Auf diesem Gerät angemeldet bleiben</label>
+    <button id="go" type="submit">Öffnen</button>
+    <div class="err" id="err" role="alert"></div>
+  </form>
+  <div class="foot">Die Daten liegen verschlüsselt auf dem Server und werden erst in diesem Browser entschlüsselt.</div>
+</main>
+<script>
+(() => {
+const KEY = "eec-key", $ = s => document.querySelector(s);
+const toB64 = u8 => btoa(String.fromCharCode(...u8));
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+let M = null;
+
+async function meta(){
+  const r = await fetch("version.json?t=" + Date.now(), {cache: "no-store"});
+  if (!r.ok) throw new Error("net");
+  return r.json();
+}
+async function deriveKey(pw){
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({name: "PBKDF2", hash: "SHA-256", salt: fromB64(M.salt), iterations: M.iter}, base, 256));
+}
+async function load(raw){
+  const r = await fetch("dashboard.enc?v=" + M.v);
+  if (!r.ok) throw new Error("net");
+  const d = new Uint8Array(await r.arrayBuffer());
+  const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
+  let plain;
+  try { plain = await crypto.subtle.decrypt({name: "AES-GCM", iv: d.slice(0, 12)}, key, d.slice(12)); }
+  catch { throw new Error("pw"); }
+  const stream = new Blob([plain]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+}
+function stored(){
+  for (const st of ["sessionStorage", "localStorage"]) {
+    try { const v = JSON.parse(window[st].getItem(KEY) || "null"); if (v) return v; } catch {}
+  }
+  return null;
+}
+function remember(raw, keep){
+  const v = JSON.stringify({salt: M.salt, k: toB64(raw)});
+  try { sessionStorage.setItem(KEY, v); } catch {}
+  if (keep) { try { localStorage.setItem(KEY, v); } catch {} }
+}
+function forget(){ try { sessionStorage.removeItem(KEY); localStorage.removeItem(KEY); } catch {} }
+function show(html){ document.open(); document.write(html); document.close(); }
+
+async function boot(){
+  if (!(window.crypto && crypto.subtle && window.DecompressionStream)) {
+    $("#sub").textContent = "Dieser Browser ist zu alt. Bitte einen aktuellen Chrome, Edge, Safari oder Firefox verwenden.";
+    $("#form").hidden = true; return;
+  }
+  try { M = await meta(); } catch { $("#err").textContent = "Server nicht erreichbar. Bitte später neu laden."; return; }
+  const s = stored();
+  if (s && s.salt === M.salt) {
+    $("#sub").textContent = "Wird geöffnet …"; $("#form").hidden = true;
+    let keep = false; try { keep = !!localStorage.getItem(KEY); } catch {}
+    try { const raw = fromB64(s.k); const html = await load(raw); remember(raw, keep); show(html); return; }
+    catch { forget(); $("#sub").textContent = "Geschützter Bereich. Bitte Passwort eingeben."; $("#form").hidden = false; }
+  }
+}
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("#go"); btn.disabled = true; btn.textContent = "Wird entschlüsselt …"; $("#err").textContent = "";
+  try {
+    if (!M) M = await meta();
+    const raw = await deriveKey($("#pw").value);
+    const html = await load(raw);
+    remember(raw, $("#remember").checked);
+    show(html);
+  } catch (err) {
+    $("#err").textContent = err.message === "pw" ? "Das Passwort stimmt nicht." : "Laden fehlgeschlagen. Bitte Seite neu laden.";
+    btn.disabled = false; btn.textContent = "Öffnen"; $("#pw").select();
+  }
+});
+boot();
+})();
+</script>
+</body>
+</html>
